@@ -216,6 +216,29 @@ def func_load():
         list.append(samplerate,frec)
     return
 
+def func_sweep():
+    SSname = filedialog.askopenfilenames(title="Load Sweep files",filetypes=[("WAV Audio",".wav")])
+    IFname = filedialog.askopenfilename(title="Load Inverse filter file",filetypes=[("WAV Audio",".wav")])
+    if len(IFname)!=0 and len(SSname)!=0:
+        [ifilt,fs_ifilt] = sf.read(IFname)
+        for k in range(len(SSname)):
+            [ss,fs_ss] = sf.read(SSname[k])
+            if fs_ss!=fs_ifilt:
+                return
+            sgn = sc.fftconvolve(ifilt,ss,mode="valid")
+            sgn = sgn/np.max(np.abs(sgn))
+            if len(np.shape(sgn))==2:
+                list.append(RIRchannels,np.shape(sgn)[1])
+            elif len(np.shape(sgn))==1:
+                list.append(RIRchannels,1)
+                sgn.resize([len(sgn),1])
+            else:
+                return
+            lstbx_IRs.insert("end",SSname[k])
+            list.append(RIRs,sgn)
+            list.append(samplerate,fs_ss)
+    return
+
 def func_clearall():
     list.clear(RIRs)
     list.clear(samplerate)
@@ -351,9 +374,13 @@ def refresh_graph2():
     env = envelopes[cmbx_IRplt.current()][cmbx_channels.current()][cmbx_bandplt.current()]
     frecs = fs[cmbx_IRplt.current()]
     graph2.cla()
-    graph2.plot(np.arange(0,len(sgn))/frecs,sgn)
+    if len(sgn)<2*len(env):
+        end=len(sgn)
+    else:
+        end=len(env)*2
+    graph2.plot(np.arange(0,end)/frecs,sgn[0:end])
     graph2.plot(np.arange(0,len(env))/frecs,env)
-    graph2.set_xlim([0,len(sgn)/frecs])
+    graph2.set_xlim(xmax=end/frecs)
     graph2.set_xlabel("Time [s]")
     graph2.set_ylabel("Level [dBFS]")
     graph2.grid()
@@ -411,11 +438,14 @@ frame_menu.rowconfigure(4,weight=1)
 btn_load = Button(frame_menu, text="Load RIRs", command=func_load)
 btn_load.grid(row=0, column=0, padx=2, pady=2, sticky="ewns")
 
+btn_sweep = Button(frame_menu, text="Load Sweep", command=func_sweep)
+btn_sweep.grid(row=0, column=1, padx=2, pady=2, sticky="ewns")
+
 btn_clearall = Button(frame_menu, text="Clear all", command=func_clearall)
-btn_clearall.grid(row=0, column=1, padx=2, pady=2, sticky="ewns")
+btn_clearall.grid(row=0, column=2, padx=2, pady=2, sticky="ewns")
 
 btn_clearselected = Button(frame_menu, text="Clear selected", command=func_clearselected)
-btn_clearselected.grid(row=0, column=2, padx=2, pady=2, sticky="ewns")
+btn_clearselected.grid(row=0, column=3, padx=2, pady=2, sticky="ewns")
 
 btn_calculate = Button(frame_menu, text="Calculate", font=("Arial",12,"bold"),command=func_calculate)
 btn_calculate.grid(row=5, column=0,columnspan=4, sticky="ewns", padx=2, pady=2)
@@ -432,22 +462,22 @@ btn_exptable.grid(row=6, column=2, sticky="ewns", padx=2, pady=2)
 lbl_IRplt = Label(frame_menu,text="RIR plot:")
 lbl_IRplt.grid(row=7, column=0, sticky="ens",pady=2)
 
-cmbx_IRplt = Combobox(frame_menu)
+cmbx_IRplt = Combobox(frame_menu,state="readonly")
 cmbx_IRplt.grid(row=7, column=1, columnspan=3, sticky="wns", pady=2, padx=2)
 cmbx_IRplt.bind("<<ComboboxSelected>>",func_IRplot)
 
 lbl_bandplt = Label(frame_menu,text="Band:")
 lbl_bandplt.grid(row=8, column=0, sticky="ens", pady=2)
 
-cmbx_bandplt = Combobox(frame_menu)
+cmbx_bandplt = Combobox(frame_menu,state="readonly")
 cmbx_bandplt.grid(row=8, column=1, sticky="wns", pady=2, padx=2)
 cmbx_bandplt.bind("<<ComboboxSelected>>",func_bandplot)
 
 lbl_channels = Label(frame_menu,text="Channel:")
-lbl_channels.grid(row=8, column=2, sticky="ens", pady=2)
+lbl_channels.grid(row=9, column=0, sticky="ens", pady=2)
 
-cmbx_channels = Combobox(frame_menu)
-cmbx_channels.grid(row=8, column=3, sticky="wns", pady=2, padx=2)
+cmbx_channels = Combobox(frame_menu,state="readonly")
+cmbx_channels.grid(row=9, column=1, sticky="wns", pady=2, padx=2)
 cmbx_channels.bind("<<ComboboxSelected>>",func_channels)
 
 frame_IRs = Frame(frame_menu)
