@@ -331,6 +331,7 @@ def lundeby(val2, fs):
 
     # find the preliminary crosspoint.
     xpoint = (noise-intercept)/slope
+    tpoint = int(np.abs(t1 - (xpoint)).argmin())
     # new interval time (between 3-10 (p=6) intervals per 10 dB decay)
     p = 6
     max_ite = 5           # Number of max iterations (5 must be enough)
@@ -355,7 +356,7 @@ def lundeby(val2, fs):
         # Linear regression from 0 dB to noise level (plus 5-10 dB)
         init = val_fil[np.abs(val_fil - max(val_fil)).argmin()]
         init_sample = np.where(val_fil == init)[0][0]
-        end = val_fil[np.abs(val_fil - (noise + 5)).argmin()]
+        end = val_fil[np.abs(val_fil[:(tpoint+int(0.2*fs))] - (noise + 5)).argmin()]
         end_sample = np.where(val_fil == end)[0][0]
         slope = (val_fil[end_sample] - val_fil[init_sample]) / (t_fil[end_sample] - t_fil[init_sample])
         intercept = end - slope * t_fil[end_sample]
@@ -373,7 +374,7 @@ def pepino(val,fs,k):
     t1 = np.linspace(0, len(val) / fs, num=len(val))
     ite = 0
     max_ite = 12
-    N = 10
+    N = 20
     T = max(t1)
     x3s=0
     R_obs=0
@@ -398,8 +399,6 @@ def pepino(val,fs,k):
                 x = np.arange(init_sample, end_sample + 1) / fs
                 y = val[init_sample:end_sample + 1]
                 slope, intercept = stats.linregress(x, y)[0:2]
-                # end_sample = np.abs(t1 - (x3[i])).argmin()
-                # slope = (env[end_sample] - env[0]) / (x3[i] - t1[0])
                 x1 = slope
                 y_k[i][:] = x1 * t1 + x2
                 y_k[i][end_sample::] = x1 * x3[i] + x2
@@ -409,7 +408,9 @@ def pepino(val,fs,k):
         ite = ite + 1
         R_obs = R
         R = (4*R)/N
-    cut = np.abs(t1 - x3s).argmin()
+        y_f = y_k[np.where(e == min(e))[0][0]]
+        cut_db = y_f[np.abs(t1 - x3s).argmin()] - 5
+        cut = np.abs(y_f - cut_db).argmin()
     mmf = np.concatenate([val[0:cut], np.ones([fs]) * val[cut]])
     return cut, mmf
 
