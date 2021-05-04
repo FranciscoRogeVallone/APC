@@ -158,7 +158,7 @@ def func_calculate():
 
                 if c == 1:
                     iacc = np.correlate(signals[s][0][b], signals[s][1][b]) / np.sqrt(
-                        np.sum(signals[s][0][b] ** 2) * np.sum(signals[s][0][b] ** 2))
+                        np.sum(signals[s][0][b] ** 2) * np.sum(signals[s][1][b] ** 2))
                     results[7, b, s, 0] = np.max(np.abs(iacc))
                     results[7, b, s, 1] = results[7, b, s, 0]
 
