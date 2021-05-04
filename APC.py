@@ -317,7 +317,7 @@ def lundeby(val2, fs):
     n = int(np.floor(len(val2)/fs/0.01))   # number of samples on 1 interval.
     v = int(np.floor(len(val2)/n))         # number of intervals.
     val_fil = mediamovil(val2,v)
-    t_fil = np.arange(len(val_fil))/fs
+    t_fil = np.linspace(0,t1[-1],num=len(val_fil))
     noise = val2[int(0.9*len(val2)):]
     noise = 10*np.log10(np.mean(10**(noise/10)))       # Find the noise in dB from the last 10% of signal
 
@@ -346,7 +346,7 @@ def lundeby(val2, fs):
         if v < 2:                               # Case when v is less than 2
             v = 2
         val_fil = mediamovil(val_fil, v)
-        t_fil = np.linspace(0, len(val2) / fs, num=len(val_fil))
+        t_fil = np.linspace(0,t1[-1],num=len(val_fil))
         delta_t = t_fil[np.abs(t_fil - xpoint - delta/2).argmin()]                    # Where occurs crosspoint + 5 dB.
         noise = val_fil[np.where(t_fil == delta_t)[0][0]::]
         if len(noise) < round(0.1*len(t1)):
@@ -371,7 +371,7 @@ def lundeby(val2, fs):
 
 
 def pepino(val,fs,k):
-    t1 = np.linspace(0, len(val) / fs, num=len(val))
+    t1 = np.arange(len(val)) / fs
     ite = 0
     max_ite = 12
     N = 20
@@ -637,7 +637,7 @@ bands_labels = [("31.5", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k
 "25", "31.5", "40", "50", "63", "80", "100", "125", "160", "200", "250", "315", "400", "500", "630", "800", "1k",
 "1.25k", "1.6k", "2k", "2.5k", "3.15k", "4k", "5k", "6.3k", "8k", "10k", "12.5k", "16k", "20k")]
 parameters = ("EDT", "T20", "T30", "C50", "C80", "Tt", "EDTt", "IACC")
-rowsaverage = ("Average", "Max", "Min", "Sigma")
+rowsaverage = ("Average", "Max", "Min", "Std. Desv.")
 
 APC = Tk()
 APC.title("Acoustic Parameters Calculator")
