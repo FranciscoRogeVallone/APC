@@ -157,13 +157,13 @@ def func_calculate():
                 results[6, b, s, c] = -60 / (slope(envelopes[s][c][b][0:Ttindex + 1]) * fs[s])
 
                 if c == 1:
-                    iacc = np.correlate(signals[s][0][b], signals[s][1][b]) / np.sqrt(
+                    iacc = np.correlate(signals[s][1][b], signals[s][0][b]) / np.sqrt(
                         np.sum(signals[s][0][b] ** 2) * np.sum(signals[s][1][b] ** 2))
                     results[7, b, s, 0] = np.max(np.abs(iacc))
                     results[7, b, s, 1] = results[7, b, s, 0]
                     
-                    iacc_early = np.correlate(signals[s][1][b][0:c80i], -signals[s][0][b][0:c80i]) / np.sqrt(
-                        np.sum(signals[s][0][b][c80i:] ** 2) * np.sum(signals[s][1][b][c80i:] ** 2))
+                    iacc_early = np.correlate(signals[s][1][b][0:c80i], signals[s][0][b][0:c80i]) / np.sqrt(
+                        np.sum(signals[s][0][b][0:c80i] ** 2) * np.sum(signals[s][1][b][0:c80i] ** 2))
                     results[8, b, s, 0] = np.max(np.abs(iacc_early))
                     results[8, b, s, 1] = results[8, b, s, 0]
 
@@ -326,11 +326,11 @@ def lundeby(val2, fs):
     noise = val2[int(0.9*len(val2)):]
     noise = 10*np.log10(np.mean(10**(noise/10)))       # Find the noise in dB from the last 10% of signal
 
-    # Linear regression from max dB to noise level (plus 5-10 dB)
+       # Linear regression from max dB to noise level (plus 5-10 dB)
     init = val_fil[np.abs(val_fil - max(val_fil)).argmin()]
     init_sample = np.where(val_fil == init)[0][0]
-    end = val_fil[np.abs(val_fil - (noise+5)).argmin()]
-    end_sample = np.where(val_fil == end)[0][0]
+    end = val_fil[np.where(val_fil < (noise+5))[0][0]]
+    end_sample = np.where(val_fil < (noise+5))[0][0]
     slope = (val_fil[end_sample] - val_fil[init_sample]) / (t_fil[end_sample] - t_fil[init_sample])
     intercept = end - slope*t_fil[end_sample]
 
@@ -351,7 +351,7 @@ def lundeby(val2, fs):
         if v < 2:                               # Case when v is less than 2
             v = 2
         val_fil = mediamovil(val_fil, v)
-        t_fil = np.linspace(0,t1[-1],num=len(val_fil))
+        t_fil = np.linspace(0, len(val2) / fs, num=len(val_fil))
         delta_t = t_fil[np.abs(t_fil - xpoint - delta/2).argmin()]                    # Where occurs crosspoint + 5 dB.
         noise = val_fil[np.where(t_fil == delta_t)[0][0]::]
         if len(noise) < round(0.1*len(t1)):
@@ -361,8 +361,8 @@ def lundeby(val2, fs):
         # Linear regression from 0 dB to noise level (plus 5-10 dB)
         init = val_fil[np.abs(val_fil - max(val_fil)).argmin()]
         init_sample = np.where(val_fil == init)[0][0]
-        end = val_fil[np.abs(val_fil[:(tpoint+int(0.2*fs))] - (noise + 5)).argmin()]
-        end_sample = np.where(val_fil == end)[0][0]
+        end = val_fil[np.where(val_fil < (noise+5))[0][0]]
+        end_sample = np.where(val_fil < (noise+5))[0][0]
         slope = (val_fil[end_sample] - val_fil[init_sample]) / (t_fil[end_sample] - t_fil[init_sample])
         intercept = end - slope * t_fil[end_sample]
 
