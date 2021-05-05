@@ -161,6 +161,11 @@ def func_calculate():
                         np.sum(signals[s][0][b] ** 2) * np.sum(signals[s][1][b] ** 2))
                     results[7, b, s, 0] = np.max(np.abs(iacc))
                     results[7, b, s, 1] = results[7, b, s, 0]
+                    
+                    iacc_early = np.correlate(signals[s][1][b][0:c80i], -signals[s][0][b][0:c80i]) / np.sqrt(
+                        np.sum(signals[s][0][b][c80i:] ** 2) * np.sum(signals[s][1][b][c80i:] ** 2))
+                    results[8, b, s, 0] = np.max(np.abs(iacc_early))
+                    results[8, b, s, 1] = results[8, b, s, 0]
 
                 bar_step += 100 / total_steps
                 progress.set(bar_step)
@@ -636,7 +641,7 @@ bands_centers = [(31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000), (
 bands_labels = [("31.5", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"), (
 "25", "31.5", "40", "50", "63", "80", "100", "125", "160", "200", "250", "315", "400", "500", "630", "800", "1k",
 "1.25k", "1.6k", "2k", "2.5k", "3.15k", "4k", "5k", "6.3k", "8k", "10k", "12.5k", "16k", "20k")]
-parameters = ("EDT", "T20", "T30", "C50", "C80", "Tt", "EDTt", "IACC")
+parameters = ("EDT", "T20", "T30", "C50", "C80", "Tt", "EDTt", "IACC", "IACC Early")
 rowsaverage = ("Average", "Max", "Min", "Std. Desv.")
 
 APC = Tk()
