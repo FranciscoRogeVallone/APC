@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import csv
 import os
 
-
+# Main function
 def func_calculate():
     if len(RIRs) == 0 or cmbx_bandfilter.current() == -1:
         return
@@ -26,7 +26,7 @@ def func_calculate():
     global fs
 
     changestate(0)
-
+    # Creation of vectors and band frequencies.
     channels = RIRchannels[:]
     strbands = bands_labels[cmbx_bandfilter.current()][
                cmbx_minband.current():cmbx_minband.current() + cmbx_maxband.current() + 1]
@@ -37,31 +37,31 @@ def func_calculate():
     signalsdb = []
     envelopes = []
     fs = samplerate[:]
-
+    # One-Third Octave Frequencies limits.
     if cmbx_bandfilter.current() == 0:
         freclim = (2 ** (1 / 2))
     elif cmbx_bandfilter.current() == 1:
         freclim = (2 ** (1 / 6))
-
+    # Progression bar
     total_steps = len(bands) * sum(channels)
     bar_step = 0
     pbar.grid()
     btn_calculate.grid_remove()
-
+    # Samples
     for s in range(len(RIRs)):
 
         list.append(signals, [])
         list.append(signalsdb, [])
         list.append(envelopes, [])
-
+        # Channels
         for c in range(channels[s]):
 
             list.append(signals[s], [])
             list.append(signalsdb[s], [])
             list.append(envelopes[s], [])
-
+            # Bands
             for b in range(len(bands) + 1):
-
+                # Inferior and superior frequencies and Window Lenght.
                 if b == 0:
                     finf = (2 / fs[s]) * bands[0] / freclim
                     fsup = (2 / fs[s]) * bands[-1] * freclim
@@ -72,33 +72,33 @@ def func_calculate():
                     winlen = int(2000 * np.log10(fs[s] / (bands[b - 1] / freclim)))
                 if fsup > 1:
                     fsup = (fs[s] - 1) / fs[s]
+                # Filter bank order 8.
                 sos = sc.butter(8, [finf, fsup], btype="band", output="sos", analog=False)
-                if reversedcheck.get() == 1:
-                    sgn = sc.sosfiltfilt(sos, np.flip(RIRs[s][:, c]))
-                    list.append(signals[s][c], np.flip(sgn))
-                else:
-                    sgn = sc.sosfiltfilt(sos, RIRs[s][:, c])
-                    list.append(signals[s][c], sgn)
-
+                # Filtering.
+                sgn = sc.sosfiltfilt(sos, RIRs[s][:, c])
+                list.append(signals[s][c], sgn)
+                # Filtered IR to dB.
                 list.append(signalsdb[s][c], np.abs(signals[s][c][b]))
+                # Determination of start sample
                 IRstart = \
                 np.where(signalsdb[s][c][b][0:np.argmax(signalsdb[s][c][b])] <= np.max(signalsdb[s][c][b]) / 10)[0]
                 if len(IRstart) == 0:
                     IRstart = 0
                 else:
                     IRstart = IRstart[-1]
+                # Truncation from IR start
                 signals[s][c][b] = signals[s][c][b][IRstart:]
                 signalsdb[s][c][b] = signalsdb[s][c][b][IRstart:]
                 signalsdb[s][c][b][signalsdb[s][c][b] == 0] = 0.00000001
                 signalsdb[s][c][b] = 20 * np.log10(signalsdb[s][c][b])
-
+                # Truncation method
                 if cmbx_chunk.current() == 0:
                     [IRend, env] = lundeby(signalsdb[s][c][b], fs[s])
                 elif cmbx_chunk.current() == 1:
                     [IRend, env] = pepino(signalsdb[s][c][b], fs[s], winlen)
                 elif cmbx_chunk.current() == 2:
                     [IRend, env] = metodo_propio(signalsdb[s][c][b], fs[s], winlen)
-
+                # Smooth method
                 if cmbx_envelope.current() == 0:
                     h2 = 10 ** (signalsdb[s][c][b][0:IRend] / 10)
                     env = 10 * np.log10(np.flip(np.cumsum(np.flip(h2))) / np.sum(h2))
@@ -117,7 +117,7 @@ def func_calculate():
                         else:
                             env = mediamovil(signalsdb[s][c][b], winlen)
                 list.append(envelopes[s][c], env)
-
+                # Acoustic parameters
                 edtsamples = getsamplesbetween(envelopes[s][c][b], 0, -10)
                 results[0, b, s, c] = -60 / (slope(edtsamples) * fs[s])
 
@@ -137,10 +137,12 @@ def func_calculate():
                 den = np.sum(signals[s][c][b][c80i:] ** 2)
                 results[4, b, s, c] = 10 * np.log10(num / den)
 
+                # Transition time.
                 hil = np.abs(sc.hilbert(signals[s][c][b]))
                 before = hil[0:-2]
                 current = hil[1:-1]
                 after = hil[2:]
+                # Determinates the first reflection.
                 minindex = np.where((before > current) * (after > current))[0]
                 minindex = minindex[minindex + 1 > np.argmax(hil)]
                 minval = hil[minindex + 1]
@@ -149,28 +151,34 @@ def func_calculate():
                 after = minval[2:]
                 minindex2 = np.where((before > current) * (after > current))[0][0]
                 index = minindex[minindex2 + 1] + 1
-                cumenergy = np.cumsum(signals[s][c][b][index:IRend] ** 2)
+                # Cummulative energy of the RIR outliers.
+                cumenergy = np.cumsum((ndimage.median_filter(signals[s][c][b][index:IRend]**2,winlen))*
+                                      (signals[s][c][b][index:IRend] ** 2))
                 cumenergy = cumenergy / np.max(cumenergy)
                 Ttindex = np.where(cumenergy >= 0.99)[0][0] + index
                 results[5, b, s, c] = Ttindex / fs[s]
-
+                # EDTt
                 results[6, b, s, c] = -60 / (slope(envelopes[s][c][b][0:Ttindex + 1]) * fs[s])
-
+                # CTtt
+                num = np.sum(signals[s][c][b][0:Ttindex] ** 2)
+                den = np.sum(signals[s][c][b][Ttindex:] ** 2)
+                results[7, b, s, c] = 10 * np.log10(num / den)
+                # IACC and IACC early
                 if c == 1:
-                    iacc = np.correlate(signals[s][1][b], signals[s][0][b]) / np.sqrt(
+                    iacc = np.correlate(signals[s][0][b], -signals[s][1][b]) / np.sqrt(
                         np.sum(signals[s][0][b] ** 2) * np.sum(signals[s][1][b] ** 2))
-                    results[7, b, s, 0] = np.max(np.abs(iacc))
-                    results[7, b, s, 1] = results[7, b, s, 0]
-                    
-                    iacc_early = np.correlate(signals[s][1][b][0:c80i], signals[s][0][b][0:c80i]) / np.sqrt(
-                        np.sum(signals[s][0][b][0:c80i] ** 2) * np.sum(signals[s][1][b][0:c80i] ** 2))
-                    results[8, b, s, 0] = np.max(np.abs(iacc_early))
+                    results[8, b, s, 0] = np.max(np.abs(iacc))
                     results[8, b, s, 1] = results[8, b, s, 0]
 
+                    iacc_early = np.correlate(signals[s][0][b][0:c80i], -signals[s][1][b][0:c80i]) / np.sqrt(
+                        np.sum(signals[s][0][b][0:c80i] ** 2) * np.sum(signals[s][1][b][0:c80i] ** 2))
+                    results[9, b, s, 0] = np.max(np.abs(iacc_early))
+                    results[9, b, s, 1] = results[9, b, s, 0]
+                # Charge the progress bar.
                 bar_step += 100 / total_steps
                 progress.set(bar_step)
                 APC.update()
-
+    # Averages
     averages = np.zeros([len(rowsaverage), len(bands) + 1, len(parameters) - 1])
     averages[0, :, :] = np.transpose(np.sum(results[0:-1, :, :, :], axis=(2, 3)) / sum(channels))
     averages[1, :, :] = np.transpose(np.max(results[0:-1, :, :, :], axis=(2, 3)))
@@ -179,7 +187,7 @@ def func_calculate():
     minresul[minindex] = results[minindex, 1]
     averages[2, :, :] = np.transpose(np.min(minresul[0:-1, :], axis=2))
     averages[3, :, :] = np.transpose(np.std(results[0:-1, :, :, 0], axis=2))
-
+    # Table section
     for i in range(len(rowsaverage) + 1):
         for j in range(len(bands_labels[-1]) + 1):
             if j <= len(bands):
@@ -224,6 +232,7 @@ def func_calculate():
 
 
 def func_exptable():
+    # Export the table to .Csv
     if len(cmbx_IRplt["values"]) != 0:
         filename = filedialog.asksaveasfilename(title="Save current table", filetypes=[("CSV File", "*.csv")],
                                                 defaultextension=[("CSV File", "*.csv")])
@@ -260,7 +269,6 @@ def changestate(onoff):
         cmbx_envelope["state"] = NORMAL
         cmbx_maxband["state"] = NORMAL
         cmbx_minband["state"] = NORMAL
-        chkbtn_reverse["state"] = NORMAL
     else:
         btn_clearall["state"] = DISABLED
         btn_clearselected["state"] = DISABLED
@@ -271,7 +279,6 @@ def changestate(onoff):
         cmbx_envelope["state"] = DISABLED
         cmbx_maxband["state"] = DISABLED
         cmbx_minband["state"] = DISABLED
-        chkbtn_reverse["state"] = DISABLED
     return
 
 
@@ -322,11 +329,11 @@ def lundeby(val2, fs):
     n = int(np.floor(len(val2)/fs/0.01))   # number of samples on 1 interval.
     v = int(np.floor(len(val2)/n))         # number of intervals.
     val_fil = mediamovil(val2,v)
-    t_fil = np.linspace(0,t1[-1],num=len(val_fil))
+    t_fil = np.arange(len(val_fil))/fs
     noise = val2[int(0.9*len(val2)):]
     noise = 10*np.log10(np.mean(10**(noise/10)))       # Find the noise in dB from the last 10% of signal
 
-       # Linear regression from max dB to noise level (plus 5-10 dB)
+    # Linear regression from max dB to noise level (plus 5-10 dB)
     init = val_fil[np.abs(val_fil - max(val_fil)).argmin()]
     init_sample = np.where(val_fil == init)[0][0]
     end = val_fil[np.where(val_fil < (noise+5))[0][0]]
@@ -376,7 +383,8 @@ def lundeby(val2, fs):
 
 
 def pepino(val,fs,k):
-    t1 = np.arange(len(val)) / fs
+    # Creation of initial grids
+    t1 = np.linspace(0, len(val) / fs, num=len(val))
     ite = 0
     max_ite = 12
     N = 20
@@ -385,6 +393,7 @@ def pepino(val,fs,k):
     R_obs=0
     R = T/N
     error = 1
+    # Iterative process
     while (error > 0.0001) and (ite <= max_ite):
         x3 = np.arange(x3s-2*R_obs,x3s+2*R_obs,R)
         if ite==0:
@@ -631,19 +640,21 @@ def refresh_graph2():
     canv2.draw()
     return
 
-
+# Lists and names.
 RIRs = []
 samplerate = []
 RIRchannels = []
 bands_centers = [(31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000), (
-25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000,
-5000, 6300, 8000, 10000, 12500, 16000, 20000)]
+                25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000,
+                2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000)]
 bands_labels = [("31.5", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"), (
-"25", "31.5", "40", "50", "63", "80", "100", "125", "160", "200", "250", "315", "400", "500", "630", "800", "1k",
-"1.25k", "1.6k", "2k", "2.5k", "3.15k", "4k", "5k", "6.3k", "8k", "10k", "12.5k", "16k", "20k")]
-parameters = ("EDT", "T20", "T30", "C50", "C80", "Tt", "EDTt", "IACC", "IACC Early")
-rowsaverage = ("Average", "Max", "Min", "Std. Desv.")
+                "25", "31.5", "40", "50", "63", "80", "100", "125", "160", "200", "250","315", "400", "500", "630",
+                "800", "1k","1.25k", "1.6k", "2k", "2.5k", "3.15k", "4k", "5k", "6.3k", "8k", "10k", "12.5k", "16k",
+                "20k")]
+parameters = ("EDT", "T20", "T30", "C50", "C80", "Tt", "EDTt","CTt", "IACC", "IACC early")
+rowsaverage = ("Average", "Max", "Min", "Sigma")
 
+# GUI
 APC = Tk()
 APC.title("Acoustic Parameters Calculator")
 APC.rowconfigure(0, weight=1)
@@ -765,9 +776,6 @@ cmbx_chunk = Combobox(frame_settings, values=("Lundeby", "Pepino", "Roge"), stat
 cmbx_chunk.current(0)
 cmbx_chunk.grid(row=2, column=3, sticky="ewns", pady=1)
 
-reversedcheck = IntVar()
-chkbtn_reverse = Checkbutton(frame_settings, text="Reversed Filtering", variable=reversedcheck)
-chkbtn_reverse.grid(row=3, column=2, columnspan=2, sticky="ewns")
 
 frame_pltsettings = Frame(frame_menu)
 frame_pltsettings.grid(row=7, column=0, columnspan=2)
