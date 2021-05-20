@@ -12,8 +12,7 @@ import matplotlib.pyplot as plt
 import csv
 import os
 
-# Main function
-def func_calculate():
+def func_calculate(): # Main function used for parameters calculation. Callback of "Calculate" button 
     if len(RIRs) == 0 or cmbx_bandfilter.current() == -1:
         return
 
@@ -24,14 +23,15 @@ def func_calculate():
     global averages
     global channels
     global fs
-
-    changestate(0)
+    
+    changestate(0) # Disabled settings while calculating
     # Creation of vectors and band frequencies.
     channels = RIRchannels[:]
     strbands = bands_labels[cmbx_bandfilter.current()][
                cmbx_minband.current():cmbx_minband.current() + cmbx_maxband.current() + 1]
     bands = bands_centers[cmbx_bandfilter.current()][
             cmbx_minband.current():cmbx_minband.current() + cmbx_maxband.current() + 1]
+    # Creation of data allocation.
     results = np.zeros([len(parameters), len(bands) + 1, len(RIRs), 2])
     signals = []
     signalsdb = []
@@ -42,12 +42,13 @@ def func_calculate():
         freclim = (2 ** (1 / 2))
     elif cmbx_bandfilter.current() == 1:
         freclim = (2 ** (1 / 6))
-    # Progression bar
+    # Set progression bar
     total_steps = len(bands) * sum(channels)
     bar_step = 0
     pbar.grid()
     btn_calculate.grid_remove()
-    # Samples
+    
+    # Signals 
     for s in range(len(RIRs)):
 
         list.append(signals, [])
@@ -62,11 +63,11 @@ def func_calculate():
             # Bands
             for b in range(len(bands) + 1):
                 # Inferior and superior frequencies and Window Lenght.
-                if b == 0:
+                if b == 0: #global 
                     finf = (2 / fs[s]) * bands[0] / freclim
                     fsup = (2 / fs[s]) * bands[-1] * freclim
                     winlen = int(2000 * np.log10(fs[s] / (bands[0] / freclim)))
-                else:
+                else: # band filter
                     finf = (2 / fs[s]) * bands[b - 1] / freclim
                     fsup = (2 / fs[s]) * bands[b - 1] * freclim
                     winlen = int(2000 * np.log10(fs[s] / (bands[b - 1] / freclim)))
@@ -79,7 +80,7 @@ def func_calculate():
                 list.append(signals[s][c], sgn)
                 # Filtered IR to dB.
                 list.append(signalsdb[s][c], np.abs(signals[s][c][b]))
-                # Determination of start sample
+                # Determination of start sample as -20dB before the maximum  
                 IRstart = \
                 np.where(signalsdb[s][c][b][0:np.argmax(signalsdb[s][c][b])] <= np.max(signalsdb[s][c][b]) / 10)[0]
                 if len(IRstart) == 0:
@@ -152,8 +153,12 @@ def func_calculate():
                 minindex2 = np.where((before > current) * (after > current))[0][0]
                 index = minindex[minindex2 + 1] + 1
                 # Cummulative energy of the RIR outliers.
-                cumenergy = np.cumsum((ndimage.median_filter(signals[s][c][b][index:IRend]**2,winlen))*
-                                      (signals[s][c][b][index:IRend] ** 2))
+                 if cmbx_envelope.current() == 1:
+                    cumenergy = np.cumsum( 10**( (signalsdb[s][c][b][index:len(envelopes[s][c][b])] + envelopes[s][c][b][index:])/10 ))
+                else:
+                    medianmf = ndimage.median_filter(signalsdb[s][c][b][0:IRend + 1 + winlen], winlen)
+                    medianmf = medianmf[int(winlen / 2):int(len(medianmf) - winlen / 2)]
+                    cumenergy = np.cumsum( 10**( (signalsdb[s][c][b][index:len(medianmf)] + medianmf[index:])/10 ))
                 cumenergy = cumenergy / np.max(cumenergy)
                 Ttindex = np.where(cumenergy >= 0.99)[0][0] + index
                 results[5, b, s, c] = Ttindex / fs[s]
@@ -187,7 +192,7 @@ def func_calculate():
     minresul[minindex] = results[minindex, 1]
     averages[2, :, :] = np.transpose(np.min(minresul[0:-1, :], axis=2))
     averages[3, :, :] = np.transpose(np.std(results[0:-1, :, :, 0], axis=2))
-    # Table section
+    # Upload data to tables
     for i in range(len(rowsaverage) + 1):
         for j in range(len(bands_labels[-1]) + 1):
             if j <= len(bands):
@@ -211,7 +216,7 @@ def func_calculate():
                     table2[i][j + 1].grid()
             else:
                 table2[i][j + 1].grid_remove()
-
+    #Update widgets and plots
     cmbx_bandplt["values"] = ("global",) + strbands
     names = ()
     for ir in range(0, len(lstbx_IRs.get(0, "end"))):
@@ -258,17 +263,17 @@ def func_exptable():
     return
 
 
-def changestate(onoff):
+def changestate(onoff): #Function that disabled settings widgets to avoid using they during calculations
     if onoff == 1:
         btn_clearall["state"] = NORMAL
         btn_clearselected["state"] = NORMAL
         btn_load["state"] = NORMAL
         btn_sweep["state"] = NORMAL
-        cmbx_bandfilter["state"] = NORMAL
-        cmbx_chunk["state"] = NORMAL
-        cmbx_envelope["state"] = NORMAL
-        cmbx_maxband["state"] = NORMAL
-        cmbx_minband["state"] = NORMAL
+        cmbx_bandfilter["state"] = "readonly"
+        cmbx_chunk["state"] = "readonly"
+        cmbx_envelope["state"] = "readonly"
+        cmbx_maxband["state"] = "readonly"
+        cmbx_minband["state"] = "readonly"
     else:
         btn_clearall["state"] = DISABLED
         btn_clearselected["state"] = DISABLED
@@ -282,7 +287,9 @@ def changestate(onoff):
     return
 
 
-def slope(data):
+def slope(data): 
+    # Given a set of samples as input, this function calculate the linear regression slope.
+    # Unit: data units per sample
     n = len(data) / 1
     x = np.arange(0, n) / 1
     m = (n * np.sum(x * data) - np.sum(x) * np.sum(data)) / (n * np.sum(x ** 2) - np.sum(x) ** 2)
@@ -290,6 +297,7 @@ def slope(data):
 
 
 def getsamplesbetween(data, Ls, Li):
+    # This function returns the data samples <Ls and >Li, with Ls and Li the levels relative to the maximum
     supe = np.where(data >= np.max(data) + Ls)[0][-1]
     infe = np.where(data < np.max(data) + Li)[0]
     infe = infe[infe > supe][0]
@@ -298,6 +306,8 @@ def getsamplesbetween(data, Ls, Li):
 
 
 def mediamovil(data, k):
+    # returns Media Moving Filter of data, with window lenght k. 
+    # output lenght results: input lenght - window lenght +1.
     w = np.concatenate([np.zeros([len(data) - 1]), np.ones([k]) / k])
     dataz = np.concatenate([data, np.zeros([k - 1])])
     fftdataz = np.fft.rfft(dataz)
@@ -308,15 +318,16 @@ def mediamovil(data, k):
 
 
 def metodo_propio(data, fs, k):
-    mmf = mediamovil(data, k)
-    mmf = np.concatenate([mmf, np.ones([fs]) * mmf[-1]])
+    # Roge method for truncation time of IR.
+    mmf = mediamovil(data, k) #media moving filter
+    mmf = np.concatenate([mmf, np.ones([fs]) * mmf[-1]]) # append 1s with end sample value, to improve detection
     indexmax = np.argmax(mmf)
     levelmax = np.max(mmf)
-    M = (mmf[-1] - levelmax) / (len(mmf) - indexmax)
-    B = (levelmax - M * indexmax)
-    cut = np.argmax(M * range(len(mmf))[indexmax:] + B - mmf[indexmax:]) + indexmax
+    M = (mmf[-1] - levelmax) / (len(mmf) - indexmax) # slope of interpolation line between max and end sample
+    B = (levelmax - M * indexmax) #intercept of interpolation line
+    cut = np.argmax(M * range(len(mmf))[indexmax:] + B - mmf[indexmax:]) + indexmax  # maximum distance between mmf and interpolation line
     cut = np.int(cut)
-    mmf = np.concatenate([mmf[0:cut], np.ones([fs]) * mmf[cut]])
+    mmf = np.concatenate([mmf[0:cut], np.ones([fs]) * mmf[cut]]) # repeat the process to improve detection 
     M = (mmf[-1] - levelmax) / (len(mmf) - indexmax)
     B = (levelmax - M * indexmax)
     cut = np.argmax(M * range(len(mmf))[indexmax:] + B - mmf[indexmax:]) + indexmax
@@ -430,6 +441,7 @@ def pepino(val,fs,k):
 
 
 def func_load():
+    # load multiple RIRs, storage sample rate, number of channels, and audio data, and upload RIRs filename
     name = filedialog.askopenfilenames(title="Load RIRs files", filetypes=[("WAV Audio", "*.wav")])
     for k in range(len(name)):
         [sgn, frec] = sf.read(name[k])
@@ -447,6 +459,8 @@ def func_load():
 
 
 def func_sweep():
+    # load sine sweep measurment of RIRs and deconvolve using the inverse filter through FFT method.
+    # storage sample rate, number of channels, and upload filename
     SSname = filedialog.askopenfilenames(title="Load Sweep files", filetypes=[("WAV Audio", "*.wav")])
     IFname = filedialog.askopenfilename(title="Load Inverse filter file", filetypes=[("WAV Audio", "*.wav")])
     if len(IFname) != 0 and len(SSname) != 0:
@@ -477,6 +491,7 @@ def func_sweep():
 
 
 def func_clearall():
+    #clear all the RIRs loaded.
     list.clear(RIRs)
     list.clear(samplerate)
     list.clear(RIRchannels)
@@ -485,6 +500,7 @@ def func_clearall():
 
 
 def func_clearselected():
+    # clear the selected RIRs loaded
     for k in lstbx_IRs.curselection():
         list.pop(RIRs, lstbx_IRs.curselection()[0])
         list.pop(samplerate, lstbx_IRs.curselection()[0])
@@ -494,6 +510,7 @@ def func_clearselected():
 
 
 def func_expplot():
+    # Export the figure that is currently plotted.
     if len(cmbx_IRplt["values"]) != 0:
         filename = filedialog.asksaveasfile(title="Save current plot", filetypes=[("PNG Image", "*.png")],
                                             defaultextension=[("PNG Image", "*.png")])
@@ -506,6 +523,7 @@ def func_expplot():
 
 
 def func_show():
+    # switch the plot and table corresponding to RIR view or RIRs average.
     if btn_show["text"] == "Show average":
         btn_show["text"] = "Show RIRs"
         frame_pltsettings.grid_remove()
@@ -524,6 +542,7 @@ def func_show():
 
 
 def func_bandfilter(event):
+    # Update widgets when user change the band filter
     if cmbx_bandfilter.current() == 0:
         cmbx_minband["values"] = bands_labels[0]
         cmbx_maxband["values"] = bands_labels[0]
@@ -538,6 +557,7 @@ def func_bandfilter(event):
 
 
 def func_limitband(event):
+    # Update the posible lower and higher bands, when user change they.
     if cmbx_bandfilter.current() == 0:
         cmbx_maxband["values"] = bands_labels[0][cmbx_minband.current():]
         cmbx_minband["values"] = bands_labels[0][0:cmbx_maxband.current() + cmbx_minband.current() + 1]
@@ -548,6 +568,7 @@ def func_limitband(event):
 
 
 def refresh_graphtable1(event):
+    #Update plot and table averages, when user change current parameter.
     if len(cmbx_IRplt["values"]) != 0:
         aver = averages[0, :, table1[0][0].current()]
         maxi = averages[1, :, table1[0][0].current()]
@@ -593,6 +614,7 @@ def refresh_graphtable1(event):
 
 
 def func_channels(event):
+    # Callback function for update RIR plot and table, when user change current channel
     if len(cmbx_IRplt["values"]) != 0:
         refresh_table2()
         refresh_graph2()
@@ -600,12 +622,14 @@ def func_channels(event):
 
 
 def func_bandplot(event):
+    # Callback function for update plot when user change band
     if len(cmbx_IRplt["values"]) != 0:
         refresh_graph2()
     return
 
 
 def func_IRplot(event):
+    # Callback function for update plot and table when user change RIR
     if len(cmbx_IRplt["values"]) != 0:
         cmbx_channels["values"] = tuple(range(1, channels[cmbx_IRplt.current()] + 1))
         cmbx_channels.current(0)
@@ -615,6 +639,7 @@ def func_IRplot(event):
 
 
 def refresh_table2():
+    # Update RIR table when is required for other functions
     for i in range(len(parameters)):
         for j in range(len(cmbx_bandplt["values"])):
             table2[i + 1][j + 1]["text"] = str(
@@ -623,6 +648,7 @@ def refresh_table2():
 
 
 def refresh_graph2():
+    # Update RIR plot when is required for other functions
     sgn = signalsdb[cmbx_IRplt.current()][cmbx_channels.current()][cmbx_bandplt.current()]
     env = envelopes[cmbx_IRplt.current()][cmbx_channels.current()][cmbx_bandplt.current()]
     frecs = fs[cmbx_IRplt.current()]
@@ -640,10 +666,11 @@ def refresh_graph2():
     canv2.draw()
     return
 
-# Lists and names.
+# Allocation for RIRs data.
 RIRs = []
 samplerate = []
 RIRchannels = []
+# Center frequencies of band filters and they corresponding label .
 bands_centers = [(31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000), (
                 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000,
                 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000)]
@@ -651,10 +678,11 @@ bands_labels = [("31.5", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k
                 "25", "31.5", "40", "50", "63", "80", "100", "125", "160", "200", "250","315", "400", "500", "630",
                 "800", "1k","1.25k", "1.6k", "2k", "2.5k", "3.15k", "4k", "5k", "6.3k", "8k", "10k", "12.5k", "16k",
                 "20k")]
+#Parameters  
 parameters = ("EDT", "T20", "T30", "C50", "C80", "Tt", "EDTt","CTt", "IACC", "IACC early")
 rowsaverage = ("Average", "Max", "Min", "Sigma")
 
-# GUI
+# Main frame of GUI
 APC = Tk()
 APC.title("Acoustic Parameters Calculator")
 APC.rowconfigure(0, weight=1)
@@ -663,19 +691,21 @@ APC["padx"] = "2"
 APC["pady"] = "2"
 APC.geometry("1000x600")
 
+# Figure of average plot
 figgraph1 = Figure(constrained_layout=True)
 graph1 = figgraph1.add_subplot(111)
 graph1.set_xlabel("Frecuency [Hz]")
 graph1.set_ylabel("")
 r, g, b = APC.winfo_rgb(APC["bg"])
 figgraph1.set_facecolor([r / 65536, g / 65536, b / 65536])
-
+# place in GUI
 canv1 = FigureCanvasTkAgg(figgraph1, master=APC)
 canv1.draw()
 get_widz1 = canv1.get_tk_widget()
 get_widz1.grid(row=0, column=1, padx=4, pady=4, sticky="ewns")
 get_widz1.grid_remove()
 
+# Figure of RIR plot
 figgraph2 = Figure(constrained_layout=True)
 graph2 = figgraph2.add_subplot(111)
 graph2.set_xlabel("Time [s]")
@@ -683,67 +713,77 @@ graph2.set_ylabel("Level [dBFS]")
 graph2.set_ylim([-100, 0])
 r, g, b = APC.winfo_rgb(APC["bg"])
 figgraph2.set_facecolor([r / 65536, g / 65536, b / 65536])
-
+# place in GUI
 canv2 = FigureCanvasTkAgg(figgraph2, master=APC)
 canv2.draw()
 get_widz2 = canv2.get_tk_widget()
 get_widz2.grid(row=0, column=1, padx=4, pady=4, sticky="ewns")
 
+
+#Frame in which menu is located
 frame_menu = Frame(APC)
 frame_menu.grid(row=0, column=0, sticky="ewns", padx=2, pady=2)
 frame_menu.rowconfigure(3, weight=1)
 
+#Progress bar to show while calculating
 progress = DoubleVar()
 pbar = Progressbar(frame_menu, variable=progress)
 pbar.grid(row=4, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
 
+#Buttons:
+
+#Load RIRs button
 btn_load = Button(frame_menu, text="Load RIRs", command=func_load)
 btn_load.grid(row=0, column=0, padx=2, pady=2, sticky="ewns")
-
+# Load sinesweep button
 btn_sweep = Button(frame_menu, text="Load Sweep", command=func_sweep)
 btn_sweep.grid(row=0, column=1, padx=2, pady=2, sticky="ewns")
-
+#Clear all RIRs button
 btn_clearall = Button(frame_menu, text="Clear all", command=func_clearall)
 btn_clearall.grid(row=1, column=0, padx=2, pady=2, sticky="ewns")
-
+#Clear selected RIRs button
 btn_clearselected = Button(frame_menu, text="Clear selected", command=func_clearselected)
 btn_clearselected.grid(row=1, column=1, padx=2, pady=2, sticky="ewns")
-
+#Calculate button
 btn_calculate = Button(frame_menu, text="Calculate", font=("Arial", 12, "bold"), command=func_calculate)
 btn_calculate.grid(row=4, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
-
+# Show average/Show RIRs button
 btn_show = Button(frame_menu, text="Show average", command=func_show)
 btn_show.grid(row=5, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
-
+# Export current plot button
 btn_expplot = Button(frame_menu, text="Export plot", command=func_expplot)
 btn_expplot.grid(row=6, column=0, sticky="ewns", padx=2, pady=2)
-
+# Export current table button
 btn_exptable = Button(frame_menu, text="Export table", command=func_exptable)
 btn_exptable.grid(row=6, column=1, sticky="ewns", padx=2, pady=2)
 
+#Frame inside menu, in which the RIRs list and the scrollbars are located 
 frame_IRs = Frame(frame_menu)
 frame_IRs.grid(row=3, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
 frame_IRs.columnconfigure(0, weight=1)
 frame_IRs.rowconfigure(0, weight=1)
+#Vertical scrollbar
 scrollbarV = Scrollbar(frame_IRs, orient="vertical")
 scrollbarV.grid(row=0, column=1, sticky="ewns")
+#Horizontal scrollbar
 scrollbarH = Scrollbar(frame_IRs, orient="horizontal")
 scrollbarH.grid(row=1, column=0, sticky="ewns")
+#Listbox of RIRs
 lstbx_IRs = Listbox(frame_IRs, selectmode="extended")
 lstbx_IRs.grid(row=0, column=0, sticky="ewns")
 lstbx_IRs.config(yscrollcommand=scrollbarV.set, xscrollcommand=scrollbarH.set)
 scrollbarV.config(command=lstbx_IRs.yview)
 scrollbarH.config(command=lstbx_IRs.xview)
 
+#Frame inside menu, in which the settings are located
 frame_settings = Frame(frame_menu)
 frame_settings.grid(row=2, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
-
+# Settings main title
 lbl_settings = Label(frame_settings, text="Settings", anchor="center")
 lbl_settings.grid(row=0, column=0, columnspan=4, sticky="ewns")
 
 lbl_bandfilter = Label(frame_settings, text="Band filter:", anchor="e")
 lbl_bandfilter.grid(row=1, column=0, sticky="ewns")
-
 cmbx_bandfilter = Combobox(frame_settings, values=("Octave", "Third"), state="readonly", width=7)
 cmbx_bandfilter.grid(row=1, column=1, sticky="ewns", pady=1)
 cmbx_bandfilter.bind("<<ComboboxSelected>>", func_bandfilter)
