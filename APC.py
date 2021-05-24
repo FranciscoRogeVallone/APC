@@ -1,5 +1,5 @@
 from tkinter import *
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from tkinter.ttk import Progressbar, Combobox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -13,222 +13,237 @@ import csv
 import os
 
 def func_calculate(): # Main function used for parameters calculation. Callback of "Calculate" button 
-    if len(RIRs) == 0 or cmbx_bandfilter.current() == -1:
+    if len(RIRs) == 0:
+        messagebox.showerror("Error", message="No data loaded")
+        return
+    if cmbx_bandfilter.current() == -1:
+        messagebox.showerror("Error", message="No filter selected")
         return
 
-    global results
-    global signals
-    global signalsdb
-    global envelopes
-    global averages
-    global channels
-    global fs
+    try:
+        global results
+        global signals
+        global signalsdb
+        global envelopes
+        global averages
+        global channels
+        global fs
+        
+        changestate(0) # Disabled settings while calculating
+        # Creation of vectors and band frequencies.
+        channels = RIRchannels[:]
+        strbands = bands_labels[cmbx_bandfilter.current()][
+                   cmbx_minband.current():cmbx_minband.current() + cmbx_maxband.current() + 1]
+        bands = bands_centers[cmbx_bandfilter.current()][
+                cmbx_minband.current():cmbx_minband.current() + cmbx_maxband.current() + 1]
+        # Creation of data allocation.
+        results = np.zeros([len(parameters), len(bands) + 1, len(RIRs), 2])
+        signals = []
+        signalsdb = []
+        envelopes = []
+        fs = samplerate[:]
+        # One-Third Octave Frequencies limits.
+        if cmbx_bandfilter.current() == 0:
+            freclim = (2 ** (1 / 2))
+        elif cmbx_bandfilter.current() == 1:
+            freclim = (2 ** (1 / 6))
+        # Set progression bar
+        total_steps = len(bands) * sum(channels)
+        bar_step = 0
+        pbar.grid()
+        btn_calculate.grid_remove()
+        
+        # Signals 
+        for s in range(len(RIRs)):
     
-    changestate(0) # Disabled settings while calculating
-    # Creation of vectors and band frequencies.
-    channels = RIRchannels[:]
-    strbands = bands_labels[cmbx_bandfilter.current()][
-               cmbx_minband.current():cmbx_minband.current() + cmbx_maxband.current() + 1]
-    bands = bands_centers[cmbx_bandfilter.current()][
-            cmbx_minband.current():cmbx_minband.current() + cmbx_maxband.current() + 1]
-    # Creation of data allocation.
-    results = np.zeros([len(parameters), len(bands) + 1, len(RIRs), 2])
-    signals = []
-    signalsdb = []
-    envelopes = []
-    fs = samplerate[:]
-    # One-Third Octave Frequencies limits.
-    if cmbx_bandfilter.current() == 0:
-        freclim = (2 ** (1 / 2))
-    elif cmbx_bandfilter.current() == 1:
-        freclim = (2 ** (1 / 6))
-    # Set progression bar
-    total_steps = len(bands) * sum(channels)
-    bar_step = 0
-    pbar.grid()
-    btn_calculate.grid_remove()
+            list.append(signals, [])
+            list.append(signalsdb, [])
+            list.append(envelopes, [])
+            # Channels
+            for c in range(channels[s]):
     
-    # Signals 
-    for s in range(len(RIRs)):
-
-        list.append(signals, [])
-        list.append(signalsdb, [])
-        list.append(envelopes, [])
-        # Channels
-        for c in range(channels[s]):
-
-            list.append(signals[s], [])
-            list.append(signalsdb[s], [])
-            list.append(envelopes[s], [])
-            # Bands
-            for b in range(len(bands) + 1):
-                # Inferior and superior frequencies and Window Lenght.
-                if b == 0: #global 
-                    finf = (2 / fs[s]) * bands[0] / freclim
-                    fsup = (2 / fs[s]) * bands[-1] * freclim
-                    winlen = int(2000 * np.log10(fs[s] / (bands[0] / freclim)))
-                else: # band filter
-                    finf = (2 / fs[s]) * bands[b - 1] / freclim
-                    fsup = (2 / fs[s]) * bands[b - 1] * freclim
-                    winlen = int(2000 * np.log10(fs[s] / (bands[b - 1] / freclim)))
-                if fsup > 1:
-                    fsup = (fs[s] - 1) / fs[s]
-                # Filter bank order 8.
-                sos = sc.butter(8, [finf, fsup], btype="band", output="sos", analog=False)
-                # Filtering.
-                sgn = sc.sosfiltfilt(sos, RIRs[s][:, c])
-                list.append(signals[s][c], sgn)
-                # Filtered IR to dB.
-                list.append(signalsdb[s][c], np.abs(signals[s][c][b]))
-                # Determination of start sample as -20dB before the maximum  
-                IRstart = \
-                np.where(signalsdb[s][c][b][0:np.argmax(signalsdb[s][c][b])] <= np.max(signalsdb[s][c][b]) / 10)[0]
-                if len(IRstart) == 0:
-                    IRstart = 0
-                else:
-                    IRstart = IRstart[-1]
-                # Truncation from IR start
-                signals[s][c][b] = signals[s][c][b][IRstart:]
-                signalsdb[s][c][b] = signalsdb[s][c][b][IRstart:]
-                signalsdb[s][c][b][signalsdb[s][c][b] == 0] = 0.00000001
-                signalsdb[s][c][b] = 20 * np.log10(signalsdb[s][c][b])
-                # Truncation method
-                if cmbx_chunk.current() == 0:
-                    [IRend, env] = lundeby(signalsdb[s][c][b], fs[s])
-                elif cmbx_chunk.current() == 1:
-                    [IRend, env] = pepino(signalsdb[s][c][b], fs[s], winlen)
-                elif cmbx_chunk.current() == 2:
-                    [IRend, env] = metodo_propio(signalsdb[s][c][b], fs[s], winlen)
-                # Smooth method
-                if cmbx_envelope.current() == 0:
-                    h2 = 10 ** (signalsdb[s][c][b][0:IRend] / 10)
-                    env = 10 * np.log10(np.flip(np.cumsum(np.flip(h2))) / np.sum(h2))
-                elif cmbx_envelope.current() == 1:
-                    if IRend + 1 + winlen < len(signalsdb[s][c][b]):
-                        env = ndimage.median_filter(signalsdb[s][c][b][0:IRend + 1 + winlen], winlen)
+                list.append(signals[s], [])
+                list.append(signalsdb[s], [])
+                list.append(envelopes[s], [])
+                # Bands
+                for b in range(len(bands) + 1):
+                    # Inferior and superior frequencies and Window Lenght.
+                    if b == 0: #global 
+                        finf = (2 / fs[s]) * bands[0] / freclim
+                        fsup = (2 / fs[s]) * bands[-1] * freclim
+                        winlen = int(2000 * np.log10(fs[s] / (bands[0] / freclim)))
+                    else: # band filter
+                        finf = (2 / fs[s]) * bands[b - 1] / freclim
+                        fsup = (2 / fs[s]) * bands[b - 1] * freclim
+                        winlen = int(2000 * np.log10(fs[s] / (bands[b - 1] / freclim)))
+                    if fsup > 1:
+                        fsup = (fs[s] - 1) / fs[s]
+                    # Filter bank order 8.
+                    sos = sc.butter(8, [finf, fsup], btype="band", output="sos", analog=False)
+                    # Filtering.
+                    sgn = sc.sosfiltfilt(sos, RIRs[s][:, c])
+                    list.append(signals[s][c], sgn)
+                    # Filtered IR to dB.
+                    list.append(signalsdb[s][c], np.abs(signals[s][c][b]))
+                    # Determination of start sample as -20dB before the maximum  
+                    IRstart = \
+                    np.where(signalsdb[s][c][b][0:np.argmax(signalsdb[s][c][b])] <= np.max(signalsdb[s][c][b]) / 10)[0]
+                    if len(IRstart) == 0:
+                        IRstart = 0
                     else:
-                        env = ndimage.median_filter(signalsdb[s][c][b], winlen)
-                    env = env[int(winlen / 2):int(len(env) - winlen / 2)]
-                elif cmbx_envelope.current() == 2:
-                    if cmbx_chunk.current() == 2:
-                        env = env[0:IRend + 1]
-                    else:
+                        IRstart = IRstart[-1]
+                    # Truncation from IR start
+                    signals[s][c][b] = signals[s][c][b][IRstart:]
+                    signalsdb[s][c][b] = signalsdb[s][c][b][IRstart:]
+                    signalsdb[s][c][b][signalsdb[s][c][b] == 0] = 0.00000001
+                    signalsdb[s][c][b] = 20 * np.log10(signalsdb[s][c][b])
+                    # Truncation method
+                    if cmbx_chunk.current() == 0:
+                        [IRend, env] = lundeby(signalsdb[s][c][b], fs[s])
+                    elif cmbx_chunk.current() == 1:
+                        [IRend, env] = pepino(signalsdb[s][c][b], fs[s], winlen)
+                    elif cmbx_chunk.current() == 2:
+                        [IRend, env] = metodo_propio(signalsdb[s][c][b], fs[s], winlen)
+                    # Smooth method
+                    if cmbx_envelope.current() == 0:
+                        h2 = 10 ** (signalsdb[s][c][b][0:IRend] / 10)
+                        env = 10 * np.log10(np.flip(np.cumsum(np.flip(h2))) / np.sum(h2))
+                    elif cmbx_envelope.current() == 1:
                         if IRend + 1 + winlen < len(signalsdb[s][c][b]):
-                            env = mediamovil(signalsdb[s][c][b][0:IRend + winlen], winlen)
+                            env = ndimage.median_filter(signalsdb[s][c][b][0:IRend + 1 + winlen], winlen)
                         else:
-                            env = mediamovil(signalsdb[s][c][b], winlen)
-                list.append(envelopes[s][c], env)
-                # Acoustic parameters
-                edtsamples = getsamplesbetween(envelopes[s][c][b], 0, -10)
-                results[0, b, s, c] = -60 / (slope(edtsamples) * fs[s])
-
-                t20samples = getsamplesbetween(envelopes[s][c][b], -5, -25)
-                results[1, b, s, c] = -60 / (slope(t20samples) * fs[s])
-
-                t30samples = getsamplesbetween(envelopes[s][c][b], -5, -35)
-                results[2, b, s, c] = -60 / (slope(t30samples) * fs[s])
-
-                c50i = np.int(0.05 * fs[s] + 1)
-                num = np.sum(signals[s][c][b][0:c50i] ** 2)
-                den = np.sum(signals[s][c][b][c50i:] ** 2)
-                results[3, b, s, c] = 10 * np.log10(num / den)
-
-                c80i = np.int(0.08 * fs[s] + 1)
-                num = np.sum(signals[s][c][b][0:c80i] ** 2)
-                den = np.sum(signals[s][c][b][c80i:] ** 2)
-                results[4, b, s, c] = 10 * np.log10(num / den)
-
-                # Transition time.
-                hil = np.abs(sc.hilbert(signals[s][c][b]))
-                before = hil[0:-2]
-                current = hil[1:-1]
-                after = hil[2:]
-                # Determinates the first reflection.
-                minindex = np.where((before > current) * (after > current))[0]
-                minindex = minindex[minindex + 1 > np.argmax(hil)]
-                minval = hil[minindex + 1]
-                before = minval[0:-2]
-                current = minval[1:-1]
-                after = minval[2:]
-                minindex2 = np.where((before > current) * (after > current))[0][0]
-                index = minindex[minindex2 + 1] + 1
-                # Cummulative energy of the RIR outliers.
-                 if cmbx_envelope.current() == 1:
-                    cumenergy = np.cumsum( 10**( (signalsdb[s][c][b][index:len(envelopes[s][c][b])] + envelopes[s][c][b][index:])/10 ))
+                            env = ndimage.median_filter(signalsdb[s][c][b], winlen)
+                        env = env[int(winlen / 2):int(len(env) - winlen / 2)]
+                    elif cmbx_envelope.current() == 2:
+                        if cmbx_chunk.current() == 2:
+                            env = env[0:IRend + 1]
+                        else:
+                            if IRend + 1 + winlen < len(signalsdb[s][c][b]):
+                                env = mediamovil(signalsdb[s][c][b][0:IRend + winlen], winlen)
+                            else:
+                                env = mediamovil(signalsdb[s][c][b], winlen)
+                    list.append(envelopes[s][c], env)
+                    # Acoustic parameters
+                    
+                    #EDT
+                    edtsamples = getsamplesbetween(envelopes[s][c][b], 0, -10)
+                    results[0, b, s, c] = -60 / (slope(edtsamples) * fs[s])
+                    #T20
+                    t20samples = getsamplesbetween(envelopes[s][c][b], -5, -25)
+                    results[1, b, s, c] = -60 / (slope(t20samples) * fs[s])
+                    #T30
+                    t30samples = getsamplesbetween(envelopes[s][c][b], -5, -35)
+                    results[2, b, s, c] = -60 / (slope(t30samples) * fs[s])
+                    #C50
+                    c50i = np.int(0.05 * fs[s] + 1)
+                    num = np.sum(signals[s][c][b][0:c50i] ** 2)
+                    den = np.sum(signals[s][c][b][c50i:] ** 2)
+                    results[3, b, s, c] = 10 * np.log10(num / den)
+                    #C80
+                    c80i = np.int(0.08 * fs[s] + 1)
+                    num = np.sum(signals[s][c][b][0:c80i] ** 2)
+                    den = np.sum(signals[s][c][b][c80i:] ** 2)
+                    results[4, b, s, c] = 10 * np.log10(num / den)
+    
+                    # Transition time.
+                    hil = np.abs(sc.hilbert(signals[s][c][b]))
+                    before = hil[0:-2]
+                    current = hil[1:-1]
+                    after = hil[2:]
+                    # Determinates the direct sound for window it.
+                    minindex = np.where((before > current) * (after > current))[0]
+                    minindex = minindex[minindex + 1 > np.argmax(hil)]
+                    minval = hil[minindex + 1]
+                    before = minval[0:-2]
+                    current = minval[1:-1]
+                    after = minval[2:]
+                    minindex2 = np.where((before > current) * (after > current))[0][0]
+                    index = minindex[minindex2 + 1] + 1
+                    # Cummulative energy of the RIR outliers.
+                    if cmbx_envelope.current() == 1:
+                        cumenergy = np.cumsum( 10**( (signalsdb[s][c][b][index:len(envelopes[s][c][b])] + envelopes[s][c][b][index:])/10 ))
+                    else:
+                        medianmf = ndimage.median_filter(signalsdb[s][c][b][0:IRend + 1 + winlen], winlen)
+                        medianmf = medianmf[int(winlen / 2):int(len(medianmf) - winlen / 2)]
+                        cumenergy = np.cumsum( 10**( (signalsdb[s][c][b][index:len(medianmf)] + medianmf[index:])/10 ))
+                    cumenergy = cumenergy / np.max(cumenergy)
+                    Ttindex = np.where(cumenergy >= 0.99)[0][0] + index
+                    results[5, b, s, c] = Ttindex / fs[s]
+                    # EDTt
+                    results[6, b, s, c] = -60 / (slope(envelopes[s][c][b][0:Ttindex + 1]) * fs[s])
+                    # CTtt
+                    num = np.sum(signals[s][c][b][0:Ttindex] ** 2)
+                    den = np.sum(signals[s][c][b][Ttindex:] ** 2)
+                    results[7, b, s, c] = 10 * np.log10(num / den)
+                    # IACC and IACC early
+                    if c == 1:
+                        iacc = np.correlate(signals[s][0][b], signals[s][1][b]) / np.sqrt(
+                                    np.sum(signals[s][0][b] ** 2) * np.sum(signals[s][1][b] ** 2))
+                        results[8, b, s, 0] = np.max(np.abs(iacc))
+                        results[8, b, s, 1] = results[8, b, s, 0]
+    
+                        iacc_early = np.correlate(signals[s][0][b][0:c80i], signals[s][1][b][0:c80i]) / np.sqrt(
+                                    np.sum(signals[s][0][b][0:c80i] ** 2) * np.sum(signals[s][1][b][0:c80i] ** 2))
+                        results[9, b, s, 0] = np.max(np.abs(iacc_early))
+                        results[9, b, s, 1] = results[9, b, s, 0]
+                        
+                        Ttchannelaverage = int( fs[s]*(results[5, b, s, 1]+results[5, b, s, 0])/2)
+                        iacct = np.correlate(signals[s][0][b][0:Ttchannelaverage], signals[s][1][b][0:Ttchannelaverage]) / np.sqrt(np.sum(signals[s][0][b][0:Ttchannelaverage] ** 2) * np.sum(signals[s][1][b][0:Ttchannelaverage] ** 2))
+                        results[10, b, s, 0] = np.max(np.abs(iacct))
+                        results[10, b, s, 1] = results[10, b, s, 0]
+                        
+                    # Charge the progress bar.
+                    bar_step += 100 / total_steps
+                    progress.set(bar_step)
+                    APC.update()
+        # Averages
+        averages = np.zeros([len(rowsaverage), len(bands) + 1, len(parameters) - 3])
+        averages[0, :, :] = np.transpose(np.sum(results[0:-3, :, :, :], axis=(2, 3)) / sum(channels))
+        averages[1, :, :] = np.transpose(np.max(results[0:-3, :, :, :], axis=(2, 3)))
+        minresul = results[:, :, :, 0] + 0
+        minindex = (results[:, :, :, 0] > results[:, :, :, 1]) * (results[:, :, :, 1] != 0)
+        minresul[minindex] = results[minindex, 1]
+        averages[2, :, :] = np.transpose(np.min(minresul[0:-3, :], axis=2))
+        averages[3, :, :] = np.transpose(np.std(results[0:-3, :, :, 0], axis=2))
+        # Upload data to tables
+        for i in range(len(rowsaverage) + 1):
+            for j in range(len(bands_labels[-1]) + 1):
+                if j <= len(bands):
+                    if i == 0 and j != 0:
+                        table1[i][j + 1]["text"] = strbands[j - 1]
+                        table1[i][j + 1].grid()
+                    elif i != 0:
+                        table1[i][j + 1]["text"] = str(np.round(averages[i - 1, j, 0], 2))
+                        table1[i][j + 1].grid()
                 else:
-                    medianmf = ndimage.median_filter(signalsdb[s][c][b][0:IRend + 1 + winlen], winlen)
-                    medianmf = medianmf[int(winlen / 2):int(len(medianmf) - winlen / 2)]
-                    cumenergy = np.cumsum( 10**( (signalsdb[s][c][b][index:len(medianmf)] + medianmf[index:])/10 ))
-                cumenergy = cumenergy / np.max(cumenergy)
-                Ttindex = np.where(cumenergy >= 0.99)[0][0] + index
-                results[5, b, s, c] = Ttindex / fs[s]
-                # EDTt
-                results[6, b, s, c] = -60 / (slope(envelopes[s][c][b][0:Ttindex + 1]) * fs[s])
-                # CTtt
-                num = np.sum(signals[s][c][b][0:Ttindex] ** 2)
-                den = np.sum(signals[s][c][b][Ttindex:] ** 2)
-                results[7, b, s, c] = 10 * np.log10(num / den)
-                # IACC and IACC early
-                if c == 1:
-                    iacc = np.correlate(signals[s][0][b], -signals[s][1][b]) / np.sqrt(
-                        np.sum(signals[s][0][b] ** 2) * np.sum(signals[s][1][b] ** 2))
-                    results[8, b, s, 0] = np.max(np.abs(iacc))
-                    results[8, b, s, 1] = results[8, b, s, 0]
-
-                    iacc_early = np.correlate(signals[s][0][b][0:c80i], -signals[s][1][b][0:c80i]) / np.sqrt(
-                        np.sum(signals[s][0][b][0:c80i] ** 2) * np.sum(signals[s][1][b][0:c80i] ** 2))
-                    results[9, b, s, 0] = np.max(np.abs(iacc_early))
-                    results[9, b, s, 1] = results[9, b, s, 0]
-                # Charge the progress bar.
-                bar_step += 100 / total_steps
-                progress.set(bar_step)
-                APC.update()
-    # Averages
-    averages = np.zeros([len(rowsaverage), len(bands) + 1, len(parameters) - 1])
-    averages[0, :, :] = np.transpose(np.sum(results[0:-1, :, :, :], axis=(2, 3)) / sum(channels))
-    averages[1, :, :] = np.transpose(np.max(results[0:-1, :, :, :], axis=(2, 3)))
-    minresul = results[:, :, :, 0] + 0
-    minindex = (results[:, :, :, 0] > results[:, :, :, 1]) * (results[:, :, :, 1] != 0)
-    minresul[minindex] = results[minindex, 1]
-    averages[2, :, :] = np.transpose(np.min(minresul[0:-1, :], axis=2))
-    averages[3, :, :] = np.transpose(np.std(results[0:-1, :, :, 0], axis=2))
-    # Upload data to tables
-    for i in range(len(rowsaverage) + 1):
-        for j in range(len(bands_labels[-1]) + 1):
-            if j <= len(bands):
-                if i == 0 and j != 0:
-                    table1[i][j + 1]["text"] = strbands[j - 1]
-                    table1[i][j + 1].grid()
-                elif i != 0:
-                    table1[i][j + 1]["text"] = str(np.round(averages[i - 1, j, 0], 2))
-                    table1[i][j + 1].grid()
-            else:
-                table1[i][j + 1].grid_remove()
-
-    for i in range(len(parameters) + 1):
-        for j in range(len(bands_labels[-1]) + 1):
-            if j <= len(bands):
-                if i == 0 and j != 0:
-                    table2[i][j + 1]["text"] = strbands[j - 1]
-                    table2[i][j + 1].grid()
-                elif i != 0:
-                    table2[i][j + 1]["text"] = str(np.round(results[i - 1, j, 0, 0], 2))
-                    table2[i][j + 1].grid()
-            else:
-                table2[i][j + 1].grid_remove()
-    #Update widgets and plots
-    cmbx_bandplt["values"] = ("global",) + strbands
-    names = ()
-    for ir in range(0, len(lstbx_IRs.get(0, "end"))):
-        names += tuple([os.path.basename(lstbx_IRs.get(ir))])
-    cmbx_IRplt["values"] = names
-    cmbx_bandplt.current(0)
-    cmbx_IRplt.current(0)
-    cmbx_channels["values"] = tuple(range(1, channels[0] + 1))
-    cmbx_channels.current(0)
-    table1[0][0].current(0)
-    refresh_graphtable1("")
-    refresh_graph2()
+                    table1[i][j + 1].grid_remove()
+    
+        for i in range(len(parameters) + 1):
+            for j in range(len(bands_labels[-1]) + 1):
+                if j <= len(bands):
+                    if i == 0 and j != 0:
+                        table2[i][j + 1]["text"] = strbands[j - 1]
+                        table2[i][j + 1].grid()
+                    elif i != 0:
+                        table2[i][j + 1]["text"] = str(np.round(results[i - 1, j, 0, 0], 2))
+                        table2[i][j + 1].grid()
+                else:
+                    table2[i][j + 1].grid_remove()
+        #Update widgets and plots
+        cmbx_bandplt["values"] = ("global",) + strbands
+        names = ()
+        for ir in range(0, len(lstbx_IRs.get(0, "end"))):
+            names += tuple([os.path.basename(lstbx_IRs.get(ir))])
+        cmbx_IRplt["values"] = names
+        cmbx_bandplt.current(0)
+        cmbx_IRplt.current(0)
+        cmbx_channels["values"] = tuple(range(1, channels[0] + 1))
+        cmbx_channels.current(0)
+        table1[0][0].current(0)
+        refresh_graphtable1("")
+        refresh_graph2()
+    except:
+        messagebox.showerror("Error", message="Calculation fail. Please check data.")
     progress.set(0)
     btn_calculate.grid()
     pbar.grid_remove()
@@ -263,7 +278,8 @@ def func_exptable():
     return
 
 
-def changestate(onoff): #Function that disabled settings widgets to avoid using they during calculations
+def changestate(onoff):
+    #Function that disabled settings widgets to avoid using they during calculations
     if onoff == 1:
         btn_clearall["state"] = NORMAL
         btn_clearselected["state"] = NORMAL
@@ -308,6 +324,7 @@ def getsamplesbetween(data, Ls, Li):
 def mediamovil(data, k):
     # returns Media Moving Filter of data, with window lenght k. 
     # output lenght results: input lenght - window lenght +1.
+    # convolution is done by zero padding and fft multiplication. Then, truncation to valid lenght is done. 
     w = np.concatenate([np.zeros([len(data) - 1]), np.ones([k]) / k])
     dataz = np.concatenate([data, np.zeros([k - 1])])
     fftdataz = np.fft.rfft(dataz)
@@ -443,18 +460,22 @@ def pepino(val,fs,k):
 def func_load():
     # load multiple RIRs, storage sample rate, number of channels, and audio data, and upload RIRs filename
     name = filedialog.askopenfilenames(title="Load RIRs files", filetypes=[("WAV Audio", "*.wav")])
-    for k in range(len(name)):
-        [sgn, frec] = sf.read(name[k])
-        if len(np.shape(sgn)) == 2:
-            list.append(RIRchannels, np.shape(sgn)[1])
-        elif len(np.shape(sgn)) == 1:
-            list.append(RIRchannels, 1)
-            sgn.resize([len(sgn), 1])
-        else:
-            return
-        lstbx_IRs.insert("end", name[k])
-        list.append(RIRs, sgn)
-        list.append(samplerate, frec)
+    try:
+        for k in range(len(name)):
+            [sgn, frec] = sf.read(name[k])
+            if len(np.shape(sgn)) == 2:
+                list.append(RIRchannels, np.shape(sgn)[1])
+            elif len(np.shape(sgn)) == 1:
+                list.append(RIRchannels, 1)
+                sgn.resize([len(sgn), 1])
+            else:
+                messagebox.showerror("Error", message="Data loaded has to many channels. Maximum channels is 2.")
+                return
+            lstbx_IRs.insert("end", name[k])
+            list.append(RIRs, sgn)
+            list.append(samplerate, frec)
+    except:
+        messagebox.showerror("Error", message="Load fail.")
     return
 
 
@@ -463,30 +484,36 @@ def func_sweep():
     # storage sample rate, number of channels, and upload filename
     SSname = filedialog.askopenfilenames(title="Load Sweep files", filetypes=[("WAV Audio", "*.wav")])
     IFname = filedialog.askopenfilename(title="Load Inverse filter file", filetypes=[("WAV Audio", "*.wav")])
-    if len(IFname) != 0 and len(SSname) != 0:
-        [ifilt, fs_ifilt] = sf.read(IFname)
-        if len(np.shape(ifilt)) == 2:
-            return
-        for k in range(len(SSname)):
-            [ss, fs_ss] = sf.read(SSname[k])
-            if fs_ss != fs_ifilt:
+    try:
+        if len(IFname) != 0 and len(SSname) != 0:
+            [ifilt, fs_ifilt] = sf.read(IFname)
+            if len(np.shape(ifilt)) == 2:
+                messagebox.showerror("Error", message="Inverse filter must have 1 channel.")
                 return
-            if len(np.shape(ss)) == 2:
-                sgn = np.zeros([np.abs(np.shape(ss)[0] - len(ifilt)) + 1, np.shape(ss)[1]])
-                for c in range(np.shape(ss)[1]):
-                    sgn[:, c] = sc.fftconvolve(ifilt, ss[:, c], mode="valid")
-                    sgn[:, c] = sgn[:, c] / np.max(np.abs(sgn[:, c]))
-                list.append(RIRchannels, np.shape(sgn)[1])
-            elif len(np.shape(ss)) == 1:
-                sgn = sc.fftconvolve(ifilt, ss, mode="valid")
-                sgn = sgn / np.max(np.abs(sgn))
-                list.append(RIRchannels, 1)
-                sgn.resize([len(sgn), 1])
-            else:
-                return
-            lstbx_IRs.insert("end", SSname[k])
-            list.append(RIRs, sgn)
-            list.append(samplerate, fs_ss)
+            for k in range(len(SSname)):
+                [ss, fs_ss] = sf.read(SSname[k])
+                if fs_ss != fs_ifilt:
+                    messagebox.showerror("Error", message="Sample rate missmatch")
+                    return
+                if len(np.shape(ss)) == 2:
+                    sgn = np.zeros([np.abs(np.shape(ss)[0] - len(ifilt)) + 1, np.shape(ss)[1]])
+                    for c in range(np.shape(ss)[1]):
+                        sgn[:, c] = sc.fftconvolve(ifilt, ss[:, c], mode="valid")
+                        sgn[:, c] = sgn[:, c] / np.max(np.abs(sgn[:, c]))
+                    list.append(RIRchannels, np.shape(sgn)[1])
+                elif len(np.shape(ss)) == 1:
+                    sgn = sc.fftconvolve(ifilt, ss, mode="valid")
+                    sgn = sgn / np.max(np.abs(sgn))
+                    list.append(RIRchannels, 1)
+                    sgn.resize([len(sgn), 1])
+                else:
+                    messagebox.showerror("Error", message="Data loaded has to many channels. Maximum channels is 2.")
+                    return
+                lstbx_IRs.insert("end", SSname[k])
+                list.append(RIRs, sgn)
+                list.append(samplerate, fs_ss)
+    except:
+        messagebox.showerror("Error", message="Load fail.")
     return
 
 
@@ -582,7 +609,7 @@ def refresh_graphtable1(event):
         #graph1.fill_between(f[1:], mini[1:], maxi[1:], facecolor='b', alpha=0.3)
         graph1.fill_between(f[1:],aver[1:]-desvi[1:]*2,aver[1:]+desvi[1:]*2, facecolor='b', alpha=0.3)
         graph1.plot(f[1:], aver[1:], "r")
-        graph1.set_xlabel("Frecuency [Hz]")
+        graph1.set_xlabel("Frequency [Hz]")
         graph1.set_xticks(f)
         graph1.set_xticklabels(cmbx_bandplt["values"])
         graph1.grid()
@@ -679,7 +706,7 @@ bands_labels = [("31.5", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k
                 "800", "1k","1.25k", "1.6k", "2k", "2.5k", "3.15k", "4k", "5k", "6.3k", "8k", "10k", "12.5k", "16k",
                 "20k")]
 #Parameters  
-parameters = ("EDT", "T20", "T30", "C50", "C80", "Tt", "EDTt","CTt", "IACC", "IACC early")
+parameters = ("EDT", "T20", "T30", "C50", "C80", "Tt", "EDTt","CTt", "IACC", "IACC early", "IACCt")
 rowsaverage = ("Average", "Max", "Min", "Sigma")
 
 # Main frame of GUI
@@ -689,7 +716,7 @@ APC.rowconfigure(0, weight=1)
 APC.columnconfigure(1, weight=1)
 APC["padx"] = "2"
 APC["pady"] = "2"
-APC.geometry("1000x600")
+APC.state("zoomed")
 
 # Figure of average plot
 figgraph1 = Figure(constrained_layout=True)
@@ -720,7 +747,7 @@ get_widz2 = canv2.get_tk_widget()
 get_widz2.grid(row=0, column=1, padx=4, pady=4, sticky="ewns")
 
 
-#Frame in which menu is located
+##Frame in which menu is located
 frame_menu = Frame(APC)
 frame_menu.grid(row=0, column=0, sticky="ewns", padx=2, pady=2)
 frame_menu.rowconfigure(3, weight=1)
@@ -735,29 +762,37 @@ pbar.grid(row=4, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
 #Load RIRs button
 btn_load = Button(frame_menu, text="Load RIRs", command=func_load)
 btn_load.grid(row=0, column=0, padx=2, pady=2, sticky="ewns")
+
 # Load sinesweep button
 btn_sweep = Button(frame_menu, text="Load Sweep", command=func_sweep)
 btn_sweep.grid(row=0, column=1, padx=2, pady=2, sticky="ewns")
+
 #Clear all RIRs button
 btn_clearall = Button(frame_menu, text="Clear all", command=func_clearall)
 btn_clearall.grid(row=1, column=0, padx=2, pady=2, sticky="ewns")
+
 #Clear selected RIRs button
 btn_clearselected = Button(frame_menu, text="Clear selected", command=func_clearselected)
 btn_clearselected.grid(row=1, column=1, padx=2, pady=2, sticky="ewns")
+
 #Calculate button
 btn_calculate = Button(frame_menu, text="Calculate", font=("Arial", 12, "bold"), command=func_calculate)
 btn_calculate.grid(row=4, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
+
 # Show average/Show RIRs button
 btn_show = Button(frame_menu, text="Show average", command=func_show)
 btn_show.grid(row=5, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
+
 # Export current plot button
 btn_expplot = Button(frame_menu, text="Export plot", command=func_expplot)
 btn_expplot.grid(row=6, column=0, sticky="ewns", padx=2, pady=2)
+
 # Export current table button
 btn_exptable = Button(frame_menu, text="Export table", command=func_exptable)
 btn_exptable.grid(row=6, column=1, sticky="ewns", padx=2, pady=2)
 
-#Frame inside menu, in which the RIRs list and the scrollbars are located 
+
+##Frame inside menu, in which the RIRs list and the scrollbars are located 
 frame_IRs = Frame(frame_menu)
 frame_IRs.grid(row=3, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
 frame_IRs.columnconfigure(0, weight=1)
@@ -775,120 +810,131 @@ lstbx_IRs.config(yscrollcommand=scrollbarV.set, xscrollcommand=scrollbarH.set)
 scrollbarV.config(command=lstbx_IRs.yview)
 scrollbarH.config(command=lstbx_IRs.xview)
 
-#Frame inside menu, in which the settings are located
+
+##Frame inside menu, in which the settings are located
 frame_settings = Frame(frame_menu)
 frame_settings.grid(row=2, column=0, columnspan=2, sticky="ewns", padx=2, pady=2)
+
 # Settings main title
 lbl_settings = Label(frame_settings, text="Settings", anchor="center")
 lbl_settings.grid(row=0, column=0, columnspan=4, sticky="ewns")
 
+# Band filter selection
 lbl_bandfilter = Label(frame_settings, text="Band filter:", anchor="e")
 lbl_bandfilter.grid(row=1, column=0, sticky="ewns")
 cmbx_bandfilter = Combobox(frame_settings, values=("Octave", "Third"), state="readonly", width=7)
 cmbx_bandfilter.grid(row=1, column=1, sticky="ewns", pady=1)
 cmbx_bandfilter.bind("<<ComboboxSelected>>", func_bandfilter)
 
+# Minimum band selection
 lbl_minband = Label(frame_settings, text="Min band:", anchor="e")
 lbl_minband.grid(row=2, column=0, sticky="ewns")
-
 cmbx_minband = Combobox(frame_settings, state="readonly", width=7)
 cmbx_minband.grid(row=2, column=1, sticky="ewns", pady=1)
 cmbx_minband.bind("<<ComboboxSelected>>", func_limitband)
 
+# Maximum band selection
 lbl_maxband = Label(frame_settings, text="Max band:", anchor="e")
 lbl_maxband.grid(row=3, column=0, sticky="ewns")
-
 cmbx_maxband = Combobox(frame_settings, state="readonly", width=7)
 cmbx_maxband.grid(row=3, column=1, sticky="ewns", pady=1)
 cmbx_maxband.bind("<<ComboboxSelected>>", func_limitband)
 
-lbl_envelope = Label(frame_settings, text="Envelope:", anchor="e")
+# Smooth method selection
+lbl_envelope = Label(frame_settings, text="Smooth:", anchor="e")
 lbl_envelope.grid(row=1, column=2, sticky="ewns")
-
 cmbx_envelope = Combobox(frame_settings, values=("Schoreder", "Median MF", "Mean MF"), state="readonly", width=10)
 cmbx_envelope.current(0)
 cmbx_envelope.grid(row=1, column=3, sticky="ewns", pady=1)
 
+#Truncation method selection
 lbl_chunk = Label(frame_settings, text="IR chunk:", anchor="e")
 lbl_chunk.grid(row=2, column=2, sticky="ewns")
-
 cmbx_chunk = Combobox(frame_settings, values=("Lundeby", "Pepino", "Roge"), state="readonly", width=10)
 cmbx_chunk.current(0)
 cmbx_chunk.grid(row=2, column=3, sticky="ewns", pady=1)
 
 
+##Frame inside menu, in which the plot settings of calculated parameters are located
 frame_pltsettings = Frame(frame_menu)
 frame_pltsettings.grid(row=7, column=0, columnspan=2)
 
-lbl_IRplt = Label(frame_pltsettings, text="RIR plot:")
+# Measurement selection to visualize the calculated parameters and the plot
+lbl_IRplt = Label(frame_pltsettings, text="RIR:")
 lbl_IRplt.grid(row=0, column=0, sticky="ens", pady=2)
-
 cmbx_IRplt = Combobox(frame_pltsettings, state="readonly")
 cmbx_IRplt.grid(row=0, column=1, columnspan=3, sticky="wns", pady=2, padx=2)
 cmbx_IRplt.bind("<<ComboboxSelected>>", func_IRplot)
 
+# Band selection to visualize the plot
 lbl_bandplt = Label(frame_pltsettings, text="Band:")
 lbl_bandplt.grid(row=1, column=0, sticky="ens", pady=2)
-
 cmbx_bandplt = Combobox(frame_pltsettings, state="readonly", width=6)
 cmbx_bandplt.grid(row=1, column=1, sticky="wns", pady=2, padx=2)
 cmbx_bandplt.bind("<<ComboboxSelected>>", func_bandplot)
 
+# Channel selection to visualize the calculated parameters and the plot
 lbl_channels = Label(frame_pltsettings, text="Channel:")
 lbl_channels.grid(row=1, column=2, sticky="ens", pady=2)
-
 cmbx_channels = Combobox(frame_pltsettings, state="readonly", width=6)
 cmbx_channels.grid(row=1, column=3, sticky="wns", pady=2, padx=2)
 cmbx_channels.bind("<<ComboboxSelected>>", func_channels)
 
+
+#Frame in which the table of averages is located
 frame_table1 = Frame(APC)
 frame_table1.grid(row=1, column=0, columnspan=2, padx=4, pady=4, sticky="ewns")
 frame_table1.grid_remove()
+
+#Table of averages
 for i in range(len(rowsaverage) + 1):
     for j in range(len(bands_labels[-1]) + 2):
-        if i == 0 and j > 1:
+        if i == 0 and j > 1: # First row. Bands labels
             table1[i] = table1[i] + [
                 Label(frame_table1, text=bands_labels[1][j - 2], bg="white", relief="solid", borderwidth=1)]
             table1[i][j].grid(row=i, column=j, sticky="ewns")
             frame_table1.columnconfigure(j, weight=1)
-        elif i == 0 and j == 1:
+        elif i == 0 and j == 1: # "global" label cell
             table1[i] = table1[i] + [Label(frame_table1, text="global", bg="white", relief="solid", borderwidth=1)]
             table1[i][j].grid(row=i, column=j, sticky="ewns")
             frame_table1.columnconfigure(j, weight=1)
-
-        elif i != 0 and j == 0:
+        elif i != 0 and j == 0: # First column. Rows headers with averages labels
             table1 = table1 + [
                 [Label(frame_table1, text=rowsaverage[i - 1], bg="white", relief="solid", borderwidth=1)]]
             table1[i][j].grid(row=i, column=j, sticky="ewns")
-        elif i != 0 and j != 0:
+        elif i != 0 and j != 0: # Empty cells in which calculated averages data will be placed
             table1[i] = table1[i] + [Label(frame_table1, text="", bg="white", relief="solid", borderwidth=1)]
             table1[i][j].grid(row=i, column=j, sticky="ewns")
-        elif i == 0 and j == 0:
-            table1 = [[Combobox(frame_table1, values=parameters[0:-1], width=5, state="readonly")]]
+        elif i == 0 and j == 0: # Upper left cell. Contains parameter selection
+            table1 = [[Combobox(frame_table1, values=parameters[0:-3], width=5, state="readonly")]]
             table1[i][j].current(0)
             table1[i][j].bind("<<ComboboxSelected>>", refresh_graphtable1)
             table1[i][j].grid(row=i, column=j, sticky="ewns")
 
+
+# Frame in which the table of calculated parameters of each measurement is located
 frame_table2 = Frame(APC)
 frame_table2.grid(row=1, column=0, columnspan=2, padx=4, pady=4, sticky="ewns")
+
+# Table of calculated parameters
 for i in range(len(parameters) + 1):
     for j in range(len(bands_labels[-1]) + 2):
-        if i == 0 and j > 1:
+        if i == 0 and j > 1: #First row. Bands labels
             table2[i] = table2[i] + [
                 Label(frame_table2, text=bands_labels[1][j - 2], bg="white", relief="solid", borderwidth=1)]
             table2[i][j].grid(row=i, column=j, sticky="ewns")
             frame_table2.columnconfigure(j, weight=1)
-        elif i == 0 and j == 1:
+        elif i == 0 and j == 1: #"global" label cell
             table2[i] = table2[i] + [Label(frame_table2, text="global", bg="white", relief="solid", borderwidth=1)]
             table2[i][j].grid(row=i, column=j, sticky="ewns")
             frame_table2.columnconfigure(j, weight=1)
-        elif i != 0 and j == 0:
+        elif i != 0 and j == 0: #First column. Rows headers with parameters labels
             table2 = table2 + [[Label(frame_table2, text=parameters[i - 1], bg="white", relief="solid", borderwidth=1)]]
             table2[i][j].grid(row=i, column=j, sticky="ewns")
-        elif i != 0 and j != 0:
+        elif i != 0 and j != 0: # Empty cells in which calculated parameters data will be placed
             table2[i] = table2[i] + [Label(frame_table2, text="", bg="white", relief="solid", borderwidth=1)]
             table2[i][j].grid(row=i, column=j, sticky="ewns")
-        elif i == 0 and j == 0:
+        elif i == 0 and j == 0: #Upper left cell. Not used 
             table2 = [[""]]
 
 APC.mainloop()
