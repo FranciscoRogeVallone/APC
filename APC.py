@@ -721,7 +721,7 @@ APC.state("zoomed")
 # Figure of average plot
 figgraph1 = Figure(constrained_layout=True)
 graph1 = figgraph1.add_subplot(111)
-graph1.set_xlabel("Frecuency [Hz]")
+graph1.set_xlabel("Frequency [Hz]")
 graph1.set_ylabel("")
 r, g, b = APC.winfo_rgb(APC["bg"])
 figgraph1.set_facecolor([r / 65536, g / 65536, b / 65536])
