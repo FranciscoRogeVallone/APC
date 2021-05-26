@@ -711,7 +711,7 @@ rowsaverage = ("Average", "Max", "Min", "Sigma")
 
 # Main frame of GUI
 APC = Tk()
-APC.title("Acoustic Parameters Calculator")
+APC.title("APC Software - Acoustical Parameters Calculator")
 APC.rowconfigure(0, weight=1)
 APC.columnconfigure(1, weight=1)
 APC["padx"] = "2"
