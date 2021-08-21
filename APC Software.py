@@ -1,6 +1,6 @@
 #####################################################################
 #                                                                   #
-#  Developed by Francisco Rogé Vallone                              #
+#  Developed by Francisco RogÃ© Vallone and Ivan Kaspierowicz        #
 #  Contact: franroge97@gmail.com                                    #
 #  Date: 4/21                                                       #
 #  Libraries needed: Matplotlib, Tkinter, Scipy, Numpy, Soundfile   #
