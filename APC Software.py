@@ -1,7 +1,7 @@
 #####################################################################
 #                                                                   #
 #  Developed by Francisco Rogé Vallone and Ivan Kaspierowicz        #
-#  Contact: franroge97@gmail.com                                    #
+#  Contact: rogevallone@gmail.com                                    #
 #  Date: 4/21                                                       #
 #  Libraries needed: Matplotlib, Tkinter, Scipy, Numpy, Soundfile   #
 #                                                                   #
